@@ -10,7 +10,7 @@ SideStore independiente (sin LiveContainer) para Vision Pro, con dos cambios:
 GitHub Actions descarga el código oficial de SideStore en una versión fija, aplica los parches de `patches/`, compila, quita la carpeta `PlugIns` y publica `SideStoreRAM.ipa` en la release `latest`.
 
 - `patches/sidestore.patch`: llama a la activación de RAM antes de descargar cada perfil.
-- `patches/sidesign.patch`: añade la petición a Apple y conserva el entitlement al firmar.
+- `patches/sidesign.patch`: añade la petición a Apple, conserva el entitlement al firmar y usa el mismo inicio de sesión por SMS que la última versión de iloader (pide a Apple la lista real de números de confianza y usa sus endpoints JSON).
 
 ## Instalación
 
