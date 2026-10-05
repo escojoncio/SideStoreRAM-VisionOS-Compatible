@@ -14,6 +14,272 @@ index c43fd90..39d30e8 100644
                  {
                      filteredEntitlements.removeValue(forKey: key)
                  }
+diff --git a/Sources/DeveloperPortal/Authentication.swift b/Sources/DeveloperPortal/Authentication.swift
+index f60d4c6..7b4dd8b 100644
+--- a/Sources/DeveloperPortal/Authentication.swift
++++ b/Sources/DeveloperPortal/Authentication.swift
+@@ -583,6 +583,10 @@ public extension DeveloperPortal {
+         if phoneNumbers.isEmpty, let statusDictionary {
+             phoneNumbers = parseTrustedPhoneNumbers(from: statusDictionary)
+         }
++        if phoneNumbers.isEmpty {
++            // Like iloader: ask Apple for the real trusted numbers (and their ids).
++            phoneNumbers = (try? await fetchTrustedPhoneNumbers(context: context)) ?? []
++        }
+ 
+         let preferredMode: TwoFactorDeliveryMode = isTrustedDevice ? .trustedDevice : .sms
+ 
+@@ -676,113 +680,114 @@ public extension DeveloperPortal {
+         }
+     }
+ 
++    // SMS / voice 2FA, ported from iloader (isideload 0.4.0): Apple's JSON
++    // endpoints with the real trusted phone number id.
+     private func sendPhone2FACodeRequest(mode requestedMode: String,
+                                       phoneID requestedPhoneID: String? = nil,
+                                       knownPhoneNumbers: [TrustedPhoneNumber] = [],
+                                       context: TwoFactorAuthContext) async throws -> TwoFactorAuthPhoneCodeResponse
+     {
+-        debugLog("[SideSign] Requesting secondary/phone 2FA code (mode: \(requestedMode), phoneID: \(requestedPhoneID ?? "auto"))...")
+-        verboseLog("[SideSign] sendPhone2FACodeRequest for dsid: \(context.dsid), requestedMode: \(requestedMode), phoneID: \(requestedPhoneID ?? "nil")")
++        var phoneNumbers = knownPhoneNumbers
++        if phoneNumbers.isEmpty {
++            phoneNumbers = (try? await fetchTrustedPhoneNumbers(context: context)) ?? []
++        }
+ 
+-        let sanitizedPhoneID: String = {
+-            if let id = requestedPhoneID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
++        let phoneID: String = {
++            if let id = requestedPhoneID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty, Int(id) != nil {
+                 return id
+             }
+-            return "1"
++            return phoneNumbers.first?.id ?? "1"
+         }()
++        let numericID = Int(phoneID) ?? 1
+ 
+-        let serverInfo: [String: any Sendable] = [
+-            "mode": requestedMode,
+-            "phoneNumber.id": sanitizedPhoneID
+-        ]
++        debugLog("[SideSign] Requesting \(requestedMode) 2FA code for trusted phone id \(phoneID)...")
+ 
+-        var request = makeTwoFactorAuthRequest(url: Constants.URLs.phonePutURL(mode: requestedMode), context: context)
+-        request.httpMethod = "POST"
+-        request.httpBody = try PropertyListSerialization.data(fromPropertyList: [
+-            "serverInfo": serverInfo
+-        ], format: .xml, options: 0)
+-
+-        if let allHeaders = request.allHTTPHeaderFields {
+-            verboseLog("[SideSign] sendPhone2FACodeRequest HTTP headers: \(prettyJSONString(from: sanitizeHeadersForLogging(allHeaders)))")
+-        }
++        var request = makeJSONTwoFactorAuthRequest(url: URL(string: "https://gsa.apple.com/auth/verify/phone")!, context: context)
++        request.httpMethod = "PUT"
++        request.httpBody = try JSONSerialization.data(withJSONObject: [
++            "phoneNumber": ["id": numericID],
++            "mode": requestedMode
++        ])
+ 
+         let (data, response) = try await session.data(for: request)
+-        let httpResponse = response as? HTTPURLResponse
+-        let statusCode = httpResponse?.safeStatusCode ?? 0
+-
+-        let rawStr = prettyJSONString(from: data)
+-        verboseLog("[SideSign] sendPhone2FACodeRequest raw response (HTTP \(statusCode)): \(rawStr)")
++        let statusCode = (response as? HTTPURLResponse)?.safeStatusCode ?? 0
++        verboseLog("[SideSign] sendPhone2FACodeRequest response (HTTP \(statusCode)): \(String(data: data, encoding: .utf8) ?? "")")
++
++        if !(200..<300).contains(statusCode) {
++            if let serviceError = parseServiceError(data) {
++                switch serviceError.code {
++                case "-22979", "-22981":
++                    // Apple refused to send another code, but the last one is still valid.
++                    debugLog("[SideSign] Apple did not send a new code, last one still valid: \(serviceError.message)")
++                case "-21668", "-28248":
++                    throw DeveloperPortalError.tooManyAttempts(cause: serviceError.message)
++                default:
++                    throw ServerError.underlyingError(code: Int(serviceError.code) ?? statusCode, message: serviceError.message)
++                }
++            } else if statusCode == 412 {
++                // A verification challenge for this number is already active.
++                debugLog("[SideSign] \(requestedMode) challenge already active, continuing to code entry")
++            } else if statusCode == HTTPStatusCodes.tooManyRequests {
++                throw DeveloperPortalError.tooManyAttempts(cause: "Verification codes cannot be sent at this time. Please try again later.")
++            } else {
++                throw ServerError.badServerResponse(reason: HTTPStatusCodes.localizedDescription(for: statusCode),
++                                                    jsonPayload: String(data: data, encoding: .utf8) ?? "")
++            }
++        }
+ 
+-        try throwIfXMLUIErrorAlert(in: data, statusCode: statusCode, actionName: "sendPhone2FACodeRequest")
++        return TwoFactorAuthPhoneCodeResponse(
++            phoneID: phoneID,
++            activeMode: requestedMode,
++            phoneNumbers: phoneNumbers,
++            statusCode: statusCode
++        )
++    }
+ 
+-        let responseDict = parsePlistOrJSON(data)
+-        let errorCode = responseDict?["ec"] as? Int ?? 0
+-        let errorMsg = (responseDict?["em"] as? String)
+-                   ?? ((responseDict?["Status"] as? [String: any Sendable])?["em"] as? String)
++    private func fetchTrustedPhoneNumbers(context: TwoFactorAuthContext) async throws -> [TrustedPhoneNumber] {
++        var request = makeJSONTwoFactorAuthRequest(url: URL(string: "https://gsa.apple.com/auth")!, context: context)
++        request.httpMethod = "GET"
+ 
+-        if errorCode == GrandSlamAuthErrorCodes.tooManyAttempts 
+-            || errorCode == GrandSlamAuthErrorCodes.tooManyCodesRequested 
+-            || errorCode == GrandSlamAuthErrorCodes.rateLimited 
+-            || statusCode == HTTPStatusCodes.tooManyRequests
+-        {
+-            let msg = errorMsg ?? "Verification codes cannot be sent to this phone number at this time. Please try again later."
+-            debugLog("[SideSign] sendPhone2FACodeRequest rate-limited (\(errorCode), HTTP \(statusCode)): \(msg)")
+-            throw DeveloperPortalError.tooManyAttempts(cause: msg)
+-        } else if errorCode != 0 {
+-            let msg = errorMsg ?? "Failed to request verification code from Apple."
+-            debugLog("[SideSign] sendPhone2FACodeRequest error (\(errorCode), HTTP \(statusCode)): \(msg)")
+-            throw ServerError.underlyingError(code: errorCode, message: msg)
+-        }
++        let (data, response) = try await session.data(for: request)
++        let statusCode = (response as? HTTPURLResponse)?.safeStatusCode ?? 0
+ 
+-        guard statusCode == HTTPStatusCodes.ok else {
+-            let reason = errorMsg ?? HTTPStatusCodes.localizedDescription(for: statusCode)
+-            debugLog("[SideSign] sendPhone2FACodeRequest failed (HTTP \(statusCode)): \(reason)")
+-            throw ServerError.badServerResponse(reason: reason, jsonPayload: rawStr)
++        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
++              let list = json["trustedPhoneNumbers"] as? [[String: Any]] else {
++            debugLog("[SideSign] Could not read trusted phone numbers (HTTP \(statusCode))")
++            return []
+         }
+ 
+-        var parsedNumbers = parseTrustedPhoneNumbers(from: responseDict)
+-        if parsedNumbers.isEmpty {
+-            parsedNumbers = knownPhoneNumbers
++        let numbers: [TrustedPhoneNumber] = list.compactMap { item in
++            guard let id = (item["id"] as? CustomStringConvertible)?.description, !id.isEmpty else { return nil }
++            let number = (item["numberWithDialCode"] as? String)
++                ?? (item["obfuscatedNumber"] as? String)
++                ?? (item["lastTwoDigits"] as? String).map { "••\($0)" }
++                ?? "Phone \(id)"
++            return TrustedPhoneNumber(id: id, number: number)
+         }
+-        let singlePhoneDict = responseDict?["phoneNumber"] as? [String: any Sendable]
+-        let phoneListFirst = (responseDict?["phoneNumbers"] as? [[String: any Sendable]])?.first
+-        let trustedPhoneListFirst = (responseDict?["trustedPhoneNumbers"] as? [[String: any Sendable]])?.first
+-        let phoneDict = singlePhoneDict ?? phoneListFirst ?? trustedPhoneListFirst
+-
+-        let (xmluiServerPhoneID, xmluiServerMode) = parseXMLUIServerInfo(from: data)
+-
+-        let rawPhoneID = (phoneDict?["id"] as? CustomStringConvertible)?.description.trimmingCharacters(in: .whitespacesAndNewlines)
+-        let resolvedPhoneID: String? = (rawPhoneID?.isEmpty == false) ? rawPhoneID : xmluiServerPhoneID
+-        let resolvedRequestedID: String? = (requestedPhoneID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? requestedPhoneID : nil
+-
+-        let phoneID = resolvedPhoneID ?? resolvedRequestedID ?? parsedNumbers.first?.id ?? "1"
+-        let activeMode = (phoneDict?["mode"] as? String) ?? xmluiServerMode ?? requestedMode
++        debugLog("[SideSign] Retrieved \(numbers.count) trusted phone number(s)")
++        return numbers
++    }
+ 
+-        let numberWithDialCode = phoneDict?["numberWithDialCode"] as? String
+-        let obfuscatedNumber = phoneDict?["obfuscatedNumber"] as? String
+-        let lastTwoDigits = (phoneDict?["lastTwoDigits"] as? String).map { "••\($0)" }
+-        let xmluiNumber = parseXMLUIObfuscatedNumber(from: data)
+-        let matchedNumber = parsedNumbers.first(where: { $0.id == phoneID })?.number
++    private struct GSAServiceError {
++        let code: String
++        let message: String
++    }
+ 
+-        let numberObfuscated = numberWithDialCode
+-                            ?? obfuscatedNumber
+-                            ?? lastTwoDigits
+-                            ?? xmluiNumber
+-                            ?? matchedNumber
+-                            ?? ""
+-        if let idx = parsedNumbers.firstIndex(where: { $0.id == phoneID }), !numberObfuscated.isEmpty {
+-            parsedNumbers[idx] = TrustedPhoneNumber(id: phoneID, number: numberObfuscated)
+-        } else if parsedNumbers.isEmpty && !numberObfuscated.isEmpty {
+-            parsedNumbers = [TrustedPhoneNumber(id: phoneID, number: numberObfuscated)]
+-        }
+-        debugLog("[SideSign] sendPhone2FACodeRequest received phone response (id: \(phoneID), mode: \(activeMode), number: \(numberObfuscated), total phones: \(parsedNumbers.count))")
++    private func parseServiceError(_ data: Data) -> GSAServiceError? {
++        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
++              let first = (json["serviceErrors"] as? [[String: Any]])?.first else { return nil }
++        let code = (first["code"] as? CustomStringConvertible)?.description ?? "unknown"
++        let title = first["title"] as? String
++        let message = first["message"] as? String
++        let text = [title, message].compactMap { $0 }.joined(separator: " - ")
++        return GSAServiceError(code: code, message: text.isEmpty ? "Apple returned error \(code)" : text)
++    }
+ 
+-        return TwoFactorAuthPhoneCodeResponse(
+-            phoneID: phoneID,
+-            activeMode: activeMode,
+-            phoneNumbers: parsedNumbers,
+-            statusCode: statusCode
+-        )
++    private func makeJSONTwoFactorAuthRequest(url: URL, context: TwoFactorAuthContext) -> URLRequest {
++        var request = makeTwoFactorAuthRequest(url: url, context: context)
++        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
++        request.setValue("application/json", forHTTPHeaderField: "Accept")
++        return request
+     }
+ 
+     private func validateTrustedDevice2FACode(code: String, context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult {
+@@ -806,23 +811,38 @@ public extension DeveloperPortal {
+                                       mode: String,
+                                       context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult
+     {
+-        var verifyRequest = makeTwoFactorAuthRequest(url: Constants.URLs.phoneSecurityCode, context: context)
+-        verifyRequest.httpMethod = "POST"
+-        verifyRequest.httpBody = try PropertyListSerialization.data(fromPropertyList: [
+-            "securityCode.code": code,
+-            "serverInfo": ["mode": mode, "phoneNumber.id": phoneID]
+-        ], format: .xml, options: 0)
++        var request = makeJSONTwoFactorAuthRequest(url: URL(string: "https://gsa.apple.com/auth/verify/phone/securitycode")!, context: context)
++        request.httpMethod = "POST"
++        request.httpBody = try JSONSerialization.data(withJSONObject: [
++            "securityCode": ["code": code],
++            "phoneNumber": ["id": Int(phoneID) ?? 1],
++            "mode": mode
++        ])
+ 
+-        if let allHeaders = verifyRequest.allHTTPHeaderFields {
+-            verboseLog("[SideSign] validatePhone2FACode HTTP headers: \(prettyJSONString(from: sanitizeHeadersForLogging(allHeaders)))")
++        debugLog("[SideSign] Verifying \(mode) security code for phone id \(phoneID)...")
++        let (data, response) = try await session.data(for: request)
++        let statusCode = (response as? HTTPURLResponse)?.safeStatusCode ?? 0
++
++        if (200..<300).contains(statusCode) {
++            return .success
+         }
+ 
+-        debugLog("[SideSign] Verifying secondary security code...")
+-        let (verifyData, verifyResponse) = try await session.data(for: verifyRequest)
+-        let verifyHttpResponse = verifyResponse as? HTTPURLResponse
+-        let verifyStatusCode = verifyHttpResponse?.safeStatusCode ?? 0
++        if let serviceError = parseServiceError(data) {
++            switch serviceError.code {
++            case "-21669":
++                return .retry(message: serviceError.message)
++            case "-21668", "-28248":
++                throw DeveloperPortalError.tooManyAttempts(cause: serviceError.message)
++            default:
++                throw ServerError.underlyingError(code: Int(serviceError.code) ?? statusCode, message: serviceError.message)
++            }
++        }
+ 
+-        return try parseTwoFactorAuthVerifyResponse(data: verifyData, statusCode: verifyStatusCode, requirePeToken: true, httpResponse: verifyHttpResponse)
++        if statusCode == HTTPStatusCodes.tooManyRequests {
++            throw DeveloperPortalError.tooManyAttempts(cause: "Too many verification code attempts. Please try again later.")
++        }
++        throw ServerError.badServerResponse(reason: HTTPStatusCodes.localizedDescription(for: statusCode),
++                                            jsonPayload: String(data: data, encoding: .utf8) ?? "")
+     }
+ 
+     private func parseTwoFactorAuthVerifyResponse(data: Data,
 diff --git a/Sources/DeveloperPortal/MemoryCapability.swift b/Sources/DeveloperPortal/MemoryCapability.swift
 new file mode 100644
 index 0000000..43db25f
