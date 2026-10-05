@@ -1,33 +1,21 @@
-# LiveMoreRAM
+# SideStore RAM
 
-LiveContainer + SideStore que activa automáticamente **Increased Memory Limit** (la capacidad que da GetMoreRam) en el App ID de cada app que instalas o renuevas desde SideStore.
+SideStore independiente (sin LiveContainer) para Vision Pro, con dos cambios:
 
-## Qué cambia
+- **Sin extensiones**: se elimina el widget, así que solo gasta **un App ID**.
+- **Increased Memory Limit automático**: al instalar o renovar cualquier app, SideStore activa la misma capacidad que GetMoreRam en su App ID antes de pedir el perfil, y la mantiene al firmar aunque la app no la declare. Si Apple rechaza esa petición, la instalación continúa con normalidad.
 
-Solo un archivo nuevo: `src/SideStoreSupport/LMRMemoryCapability.m`.
+## Cómo se fabrica
 
-Justo antes de que SideStore pida a Apple el perfil de aprovisionamiento de una app, envía la misma petición que GetMoreRam (`INCREASED_MEMORY_LIMIT` en el App ID). El perfil que llega ya incluye `com.apple.developer.kernel.increased-memory-limit`.
+GitHub Actions descarga el código oficial de SideStore en una versión fija, aplica los parches de `patches/`, compila, quita la carpeta `PlugIns` y publica `SideStoreRAM.ipa` en la release `latest`.
 
-- Si esa petición falla, la instalación continúa exactamente como antes.
-- Los registros aparecen en la consola con el prefijo `[LiveMoreRAM]`.
+- `patches/sidestore.patch`: llama a la activación de RAM antes de descargar cada perfil.
+- `patches/sidesign.patch`: añade la petición a Apple y conserva el entitlement al firmar.
 
-## Cómo se fabrica el IPA
+## Instalación
 
-1. GitHub Actions compila el proyecto de `src/` (misma versión que el IPA original).
-2. Toma el IPA original de `base/` y sustituye **solo** el binario de `SideStoreSupport.framework`.
-3. `scripts/compare.py` comprueba que todo lo demás es idéntico byte a byte (IDs, versiones, SideStore, extensiones). Si algo difiere, la compilación falla.
-4. El resultado se publica en la release `latest` como `LiveMoreRAM.ipa`.
-
-Como los IDs son los mismos, se instala encima del LiveContainer+SideStore actual conservando los datos.
-
-## Limitación
-
-SideStore solo incluye el entitlement en la firma si la propia app lo declara. Las apps que lo declaran (LiveContainer, emuladores, juegos pesados) reciben la RAM extra automáticamente. Las que no lo declaran no cambian, igual que con GetMoreRam.
-
-## Volver atrás
-
-Reinstalar `base/LiveContainer_SideStore.ipa`.
+Instalar `SideStoreRAM.ipa` con iloader. La renovación cada 7 días la hace SideStore como siempre.
 
 ## Licencia
 
-El código de `src/` mantiene su licencia original (AGPL-3.0, ver `src/LICENSE`).
+SideStore y SideSign son AGPL-3.0; los parches siguen esa misma licencia.

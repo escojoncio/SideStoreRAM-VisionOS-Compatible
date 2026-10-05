@@ -1,0 +1,36 @@
+diff --git a/SideStore/Core/Auth/DeveloperPortalProxy.swift b/SideStore/Core/Auth/DeveloperPortalProxy.swift
+index 97ac67f..a1082b5 100644
+--- a/SideStore/Core/Auth/DeveloperPortalProxy.swift
++++ b/SideStore/Core/Auth/DeveloperPortalProxy.swift
+@@ -118,6 +118,12 @@ public class DeveloperPortalProxy {
+         return try await ALTAppleAPI.shared.updateAppID(appID, team: team, session: session)
+     }
+ 
++    public func enableIncreasedMemoryLimit(for appID: ALTAppID, team: ALTTeam? = nil) async throws {
++        let session = try await self.getSession()
++        let team = try await self.getTeam(team)
++        try await ALTAppleAPI.shared.enableIncreasedMemoryLimit(for: appID, team: team, session: session)
++    }
++
+     @discardableResult
+     public func deleteAppID(_ appID: ALTAppID, team: ALTTeam? = nil) async throws -> Bool {
+         let session = try await self.getSession()
+diff --git a/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift b/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift
+index e0e2399..5404d50 100644
+--- a/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift
++++ b/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift
+@@ -185,6 +185,14 @@ class FetchProvisioningProfilesOperation: BasePipelineOperation<InstallAppOperat
+         
+         verboseLog(targetAppBundle.dumpMachOInfo())
+         self.debugLog("[FetchProvisioningProfiles] Fetching provisioning profile from Apple for App ID \(groupAppID.bundleIdentifier)...")
++        // Same as GetMoreRam: enable Increased Memory Limit on the App ID so the
++        // profile below already includes it. Never blocks the install on failure.
++        do {
++            try await DeveloperPortalProxy.shared.enableIncreasedMemoryLimit(for: groupAppID, team: team)
++            self.debugLog("[FetchProvisioningProfiles] Increased Memory Limit enabled for \(groupAppID.bundleIdentifier)")
++        } catch {
++            self.debugLog("[FetchProvisioningProfiles] Could not enable Increased Memory Limit for \(groupAppID.bundleIdentifier): \(error.localizedDescription)")
++        }
+         let profile = try await DeveloperPortalProxy.shared.downloadProvisioningProfile(for: groupAppID, deviceType: DeveloperPortalProxy.currentDeviceType, team: team)
+         self.debugLog("[FetchProvisioningProfiles] Provisioning profile fetched for \(groupAppID.bundleIdentifier) (Name: \(profile.name), Expiration: \(String(describing: profile.expirationDate)))")
+         return profile
