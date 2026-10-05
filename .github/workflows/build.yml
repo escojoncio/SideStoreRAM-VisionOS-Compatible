@@ -1,0 +1,76 @@
+name: Build LiveMoreRAM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          # The original IPA was built with Xcode 27 (iOS 27 SDK). Prefer it.
+          XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+            echo "::warning::Xcode 27 not found, using $XCODE"
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
+
+      - name: Fetch OpenSSL dependency
+        run: |
+          # Same pinned commit the original project uses.
+          git init -q src/OpenSSL
+          cd src/OpenSSL
+          git remote add origin https://github.com/krzyzanowskim/OpenSSL
+          git sparse-checkout set Frameworks/OpenSSL.xcframework
+          git fetch -q --depth 1 --filter=blob:none origin 623c84da314e85363236507ca38a4bde65df21c3
+          git checkout -q FETCH_HEAD
+          ls Frameworks/OpenSSL.xcframework
+
+      - name: Build
+        working-directory: src
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project LiveContainer.xcodeproj \
+            -scheme LiveContainer \
+            -archivePath "$RUNNER_TEMP/archive" \
+            -sdk iphoneos -arch arm64 -configuration Release \
+            | xcpretty
+
+      - name: Package IPA
+        run: |
+          FW="$RUNNER_TEMP/archive.xcarchive/Products/Applications/LiveContainer.app/Frameworks/SideStoreSupport.framework"
+          ls -la "$FW"
+          bash scripts/package.sh "$FW" LiveMoreRAM.ipa
+
+      - name: Verify against original IPA
+        run: python3 scripts/compare.py base/LiveContainer_SideStore.ipa LiveMoreRAM.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveMoreRAM.ipa
+          path: LiveMoreRAM.ipa
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest LiveMoreRAM.ipa \
+            --title "LiveMoreRAM" \
+            --notes "Build ${{ github.sha }}. Instalar encima del LiveContainer+SideStore actual."
+
+permissions:
+  contents: write
