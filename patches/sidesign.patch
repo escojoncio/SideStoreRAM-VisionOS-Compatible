@@ -1,0 +1,113 @@
+diff --git a/Sources/CodeSigning/CodeSignerAPI.swift b/Sources/CodeSigning/CodeSignerAPI.swift
+index c43fd90..39d30e8 100644
+--- a/Sources/CodeSigning/CodeSignerAPI.swift
++++ b/Sources/CodeSigning/CodeSignerAPI.swift
+@@ -116,7 +116,10 @@ public struct AppBundleSigner: CodeSignerAPI, Sendable {
+                     }
+                 } else if key != "application-identifier"               &&
+                           key != "com.apple.developer.team-identifier"  &&
+-                          key != "get-task-allow" 
++                          key != "get-task-allow"                       &&
++                          // Keep Increased Memory Limit whenever the profile grants it,
++                          // even if the app itself does not declare it.
++                          key != "com.apple.developer.kernel.increased-memory-limit"
+                 {
+                     filteredEntitlements.removeValue(forKey: key)
+                 }
+diff --git a/Sources/DeveloperPortal/MemoryCapability.swift b/Sources/DeveloperPortal/MemoryCapability.swift
+new file mode 100644
+index 0000000..43db25f
+--- /dev/null
++++ b/Sources/DeveloperPortal/MemoryCapability.swift
+@@ -0,0 +1,91 @@
++//
++//  MemoryCapability.swift
++//  SideSign
++//
++//  Enables the "Increased Memory Limit" capability on an App ID, the same
++//  Developer Services request GetMoreRam sends (PATCH services/v1/bundleIds/<id>
++//  with an INCREASED_MEMORY_LIMIT bundleIdCapabilities relationship).
++//  Free developer teams are allowed to use this capability.
++//
++
++import Foundation
++
++public extension DeveloperPortal {
++
++    static let increasedMemoryLimitCapability = "INCREASED_MEMORY_LIMIT"
++
++    func enableIncreasedMemoryLimit(for appID: AppID, team: Team, session apiSession: Session) async throws {
++        debugLog("[SideSign] enableIncreasedMemoryLimit starting for \(appID.bundleIdentifier) (\(appID.identifier))")
++
++        let url = Constants.URLs.developerServicesV1Base
++            .appendingPathComponent("bundleIds")
++            .appendingPathComponent(appID.identifier)
++
++        let payload: [String: Any] = [
++            "data": [
++                "type": "bundleIds",
++                "id": appID.identifier,
++                "attributes": [
++                    "identifier": appID.bundleIdentifier,
++                    "teamId": team.identifier,
++                    "seedId": team.identifier,
++                    "bundleType": "bundle",
++                    "name": appID.name,
++                    "hasExclusiveManagedCapabilities": false
++                ],
++                "relationships": [
++                    "bundleIdCapabilities": [
++                        "data": [[
++                            "type": "bundleIdCapabilities",
++                            "attributes": ["enabled": true, "settings": [Any]()],
++                            "relationships": [
++                                "capability": [
++                                    "data": ["type": "capabilities", "id": Self.increasedMemoryLimitCapability]
++                                ]
++                            ]
++                        ]]
++                    ]
++                ]
++            ]
++        ]
++
++        var request = URLRequest(url: url)
++        request.httpMethod = "PATCH"
++        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
++
++        let h = customHeaders
++        let a = apiSession.anisetteData
++        let headers: [String: String] = [
++            "Content-Type": "application/vnd.api+json",
++            "Accept": "application/json, text/plain, */*",
++            "User-Agent": h.developerServices.userAgent,
++            "Accept-Language": "en-us",
++            "X-Apple-App-Info": h.grandSlam.authApp,
++            "X-Xcode-Version": apiSession.xcodeVersion,
++            "X-Apple-I-Identity-Id": apiSession.dsid,
++            "X-Apple-GS-Token": apiSession.authToken,
++            "X-Apple-I-MD-M": a.machineID,
++            "X-Apple-I-MD": a.oneTimePassword,
++            "X-Apple-I-MD-LU": a.localUserID,
++            "X-Apple-I-MD-RINFO": a.routingInfo,
++            "X-Mme-Device-Id": a.deviceID,
++            "X-MMe-Client-Info": a.clientInfo,
++            "X-Apple-I-Client-Time": a.clientTime,
++            "X-Apple-Locale": a.locale,
++            "X-Apple-I-Locale": a.locale,
++            "X-Apple-I-TimeZone": a.timeZone
++        ]
++        headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
++
++        let (data, response) = try await session.data(for: request)
++        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
++
++        guard (200..<300).contains(statusCode) else {
++            let body = String(data: data.prefix(800), encoding: .utf8) ?? ""
++            debugLog("[SideSign] enableIncreasedMemoryLimit failed (HTTP \(statusCode)): \(body)")
++            throw ServerError.underlyingError(code: statusCode, message: "Could not enable Increased Memory Limit (HTTP \(statusCode))")
++        }
++
++        debugLog("[SideSign] enableIncreasedMemoryLimit succeeded for \(appID.bundleIdentifier)")
++    }
++}

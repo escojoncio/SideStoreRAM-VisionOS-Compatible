@@ -1,76 +1,90 @@
-name: Build LiveMoreRAM
+name: Build SideStore (RAM)
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  SIDESTORE_REPO: https://github.com/SideStore/SideStore
+  # develop @ 2026-09-20 (SideSign 6b68651, minimuxer 12be70d)
+  SIDESTORE_COMMIT: 0dd743f75afc358b0ba4a002feb5f19474492371
+
 jobs:
   build:
-    runs-on: xcode-27
+    runs-on: macos-26
     steps:
-      - name: Checkout
+      - name: Checkout patches
         uses: actions/checkout@v4
 
-      - name: Select Xcode
+      - name: Fetch SideStore source
         run: |
-          ls -d /Applications/Xcode*.app || true
-          # The original IPA was built with Xcode 27 (iOS 27 SDK). Prefer it.
-          XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$XCODE" ]; then
-            XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
-            echo "::warning::Xcode 27 not found, using $XCODE"
-          fi
+          git clone --filter=blob:none "$SIDESTORE_REPO" upstream
+          cd upstream
+          git checkout -q "$SIDESTORE_COMMIT"
+          git submodule update --init --recursive
+          git log -1 --format='SideStore %h %ad'
+          git submodule status
+
+      - name: Apply patches
+        run: |
+          cd upstream
+          git apply --verbose ../patches/sidestore.patch
+          git -C Dependencies/SideSign apply --verbose ../../../patches/sidesign.patch
+
+      - name: Setup tools
+        run: |
+          brew install ldid xcbeautify
+          XCODE=$(ls -d /Applications/Xcode_26.4*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$XCODE" ] || XCODE=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
           sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
-          xcodebuild -showsdks | grep -i iphoneos
-
-      - name: Fetch OpenSSL dependency
-        run: |
-          # Same pinned commit the original project uses.
-          git init -q src/OpenSSL
-          cd src/OpenSSL
-          git remote add origin https://github.com/krzyzanowskim/OpenSSL
-          git sparse-checkout set Frameworks/OpenSSL.xcframework
-          git fetch -q --depth 1 --filter=blob:none origin 623c84da314e85363236507ca38a4bde65df21c3
-          git checkout -q FETCH_HEAD
-          ls Frameworks/OpenSSL.xcframework
 
       - name: Build
-        working-directory: src
+        working-directory: upstream
         run: |
+          mkdir -p build/logs
           set -o pipefail
-          xcodebuild archive \
-            -project LiveContainer.xcodeproj \
-            -scheme LiveContainer \
-            -archivePath "$RUNNER_TEMP/archive" \
-            -sdk iphoneos -arch arm64 -configuration Release \
-            | xcpretty
+          NSUnbufferedIO=YES make -B build 2>&1 | tee build/logs/build.log | xcbeautify --renderer github-actions
+          make fakesign 2>&1 | tee -a build/logs/build.log
+          make ipa 2>&1 | tee -a build/logs/build.log
 
-      - name: Package IPA
+      - name: Strip extensions and package
         run: |
-          FW="$RUNNER_TEMP/archive.xcarchive/Products/Applications/LiveContainer.app/Frameworks/SideStoreSupport.framework"
-          ls -la "$FW"
-          bash scripts/package.sh "$FW" LiveMoreRAM.ipa
+          rm -rf work && mkdir work && cd work
+          unzip -q ../upstream/SideStore.ipa
+          echo "Removing extensions:"; ls Payload/SideStore.app/PlugIns || true
+          rm -rf Payload/SideStore.app/PlugIns
+          BIN=Payload/SideStore.app/SideStore
+          grep -q INCREASED_MEMORY_LIMIT "$BIN" || { echo "::error::RAM patch missing from binary"; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/SideStore.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Payload/SideStore.app/Info.plist
+          zip -qry -X ../SideStoreRAM.ipa Payload
+          cd .. && ls -la SideStoreRAM.ipa
 
-      - name: Verify against original IPA
-        run: python3 scripts/compare.py base/LiveContainer_SideStore.ipa LiveMoreRAM.ipa
+      - name: Report build errors
+        if: failure()
+        run: |
+          LOG=upstream/build/logs/build.log
+          [ -f "$LOG" ] || exit 0
+          grep -E "error:|fatal error|\*\* ARCHIVE FAILED" "$LOG" | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line:0:900}"
+          done
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: LiveMoreRAM.ipa
-          path: LiveMoreRAM.ipa
+          name: SideStoreRAM.ipa
+          path: SideStoreRAM.ipa
 
       - name: Publish release
-        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest LiveMoreRAM.ipa \
-            --title "LiveMoreRAM" \
-            --notes "Build ${{ github.sha }}. Instalar encima del LiveContainer+SideStore actual."
-
-permissions:
-  contents: write
+          gh release create latest SideStoreRAM.ipa \
+            --title "SideStore RAM" \
+            --notes "SideStore ${SIDESTORE_COMMIT:0:7} sin extensiones y con Increased Memory Limit automático. Build ${GITHUB_SHA:0:7}."
