@@ -1,5 +1,17 @@
 # SideStore RAM
 
+> **Written by Claude.** The patches and the build in this repository were written entirely by
+> Claude (Anthropic's AI), following all the instructions and ideas of
+> the repository owner.
+>
+> **Based on / thanks to:** [SideStore](https://github.com/SideStore/SideStore) and the SideStore
+> team - this is their app with two patches on top -, [GetMoreRam](https://github.com/hugeBlack/GetMoreRam)
+> by [hugeBlack](https://github.com/hugeBlack), whose idea of asking Apple for the Increased Memory
+> Limit capability is what the patches do on every install, and
+> [iloader](https://github.com/nab138/iloader) by [nab138](https://github.com/nab138), whose SMS
+> sign-in the patches follow. Thank you for your work!
+
+
 SideStore independiente (sin LiveContainer) para Vision Pro, con dos cambios:
 
 - **Sin extensiones**: se elimina el widget, así que solo gasta **un App ID**.
