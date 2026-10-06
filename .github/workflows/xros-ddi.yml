@@ -15,18 +15,20 @@ jobs:
     steps:
       - name: Find xrOS DDI
         run: |
-          set -x
-          xcodebuild -version
-          XC=$(xcode-select -p)/../..
-          ls -la "$XC/Contents/Resources/CoreDeviceDDIs" 2>/dev/null || true
-          ls -laR /Library/Developer/DeveloperDiskImages 2>/dev/null | head -50 || true
-          find / -iname "*xrOS*DDI*" -maxdepth 8 2>/dev/null | head -20 || true
+          note() { while IFS= read -r l; do echo "::notice::$l"; done; }
+          xcodebuild -version | note
+          XC=$(cd "$(xcode-select -p)/../.." && pwd); echo "Xcode: $XC" | note
+          ls "$XC/Contents/Resources/CoreDeviceDDIs" 2>&1 | note
+          ls /Library/Developer/DeveloperDiskImages 2>&1 | note
+          xcodebuild -showsdks 2>/dev/null | grep -i xr | note
+          ls /Applications | grep -i xcode | note
+          (find /Applications/Xcode*.app/Contents/Resources /Library/Developer -maxdepth 3 -iname "*DDI*" 2>/dev/null | head -30) | note
 
       - name: Collect files
         run: |
           set -e
           mkdir -p out/DDI
-          XC=$(xcode-select -p)/../..
+          XC=$(cd "$(xcode-select -p)/../.." && pwd)
           SRC=""
           if [ -d /Library/Developer/DeveloperDiskImages/xrOS_DDI ]; then
             SRC=/Library/Developer/DeveloperDiskImages/xrOS_DDI
