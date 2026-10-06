@@ -37,7 +37,8 @@ jobs:
             SRC=/tmp/xrosddi
           fi
           [ -n "$SRC" ] || { echo "::error::xrOS DDI not found on this runner"; exit 1; }
-          echo "Source: $SRC"; find "$SRC" -maxdepth 4 | head -40
+          echo "Source: $SRC"
+          (cd "$SRC" && find . -maxdepth 5 -exec ls -ld {} \; | head -60) | while IFS= read -r l; do echo "::notice::$l"; done
           IMG=$(find "$SRC" -name Image.dmg | head -1)
           DIR=$(dirname "$IMG")
           cp "$DIR/Image.dmg" "$DIR/Image.dmg.trustcache" out/DDI/
