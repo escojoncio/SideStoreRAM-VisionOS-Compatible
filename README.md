@@ -3,6 +3,7 @@
 > **Written by Claude.** The patches and the build in this repository were written entirely by
 > Claude (Anthropic's AI), following all the instructions and ideas of
 > the repository owner.
+> **The owner of this repository guided all of this work: every idea, and every instruction about what Claude had to do, came from them.**
 >
 > **Based on / thanks to:** [SideStore](https://github.com/SideStore/SideStore) and the SideStore
 > team - this is their app with two patches on top -, [GetMoreRam](https://github.com/hugeBlack/GetMoreRam)
@@ -19,7 +20,7 @@ SideStore independiente (sin LiveContainer) para Vision Pro, con dos cambios:
 
 ## Cómo se fabrica
 
-GitHub Actions descarga el código oficial de SideStore en una versión fija, aplica los parches de `patches/`, compila, quita la carpeta `PlugIns` y publica `SideStoreRAM.ipa` en la release `latest`.
+GitHub Actions descarga el código oficial de SideStore en una versión fija, aplica los parches de `patches/`, compila, quita la carpeta `PlugIns` y publica `SideStoreRAM.ipa` en la release `latest`. Solo compila cuando se pide: a mano (*Actions › Run workflow*) o con `[build]` en el mensaje del commit.
 
 - `patches/sidestore.patch`: llama a la activación de RAM antes de descargar cada perfil.
 - `patches/sidesign.patch`: añade la petición a Apple, conserva el entitlement al firmar y usa el mismo inicio de sesión por SMS que la última versión de iloader (pide a Apple la lista real de números de confianza y usa sus endpoints JSON).
