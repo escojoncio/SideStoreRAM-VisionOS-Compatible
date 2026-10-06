@@ -1,9 +1,7 @@
 # SideStore RAM
 
-> **Written by Claude.** The patches and the build in this repository were written entirely by
-> Claude (Anthropic's AI), following all the instructions and ideas of
-> the repository owner.
-> **The owner of this repository guided all of this work: every idea, and every instruction about what Claude had to do, came from them.**
+> **Written by Claude.** The patches and the build in this repository were written by Claude
+> (Anthropic's AI); the owner of this repository contributed ideas on how some things could be adapted.
 >
 > **Based on / thanks to:** [SideStore](https://github.com/SideStore/SideStore) and the SideStore
 > team - this is their app with two patches on top -, [GetMoreRam](https://github.com/hugeBlack/GetMoreRam)
