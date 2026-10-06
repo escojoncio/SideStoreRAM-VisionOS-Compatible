@@ -16,13 +16,14 @@ index 97ac67f..a1082b5 100644
      public func deleteAppID(_ appID: ALTAppID, team: ALTTeam? = nil) async throws -> Bool {
          let session = try await self.getSession()
 diff --git a/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift b/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift
-index e0e2399..5404d50 100644
+index e0e2399..0d44a8c 100644
 --- a/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift
 +++ b/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift
-@@ -185,6 +185,14 @@ class FetchProvisioningProfilesOperation: BasePipelineOperation<InstallAppOperat
+@@ -185,7 +185,34 @@ class FetchProvisioningProfilesOperation: BasePipelineOperation<InstallAppOperat
          
          verboseLog(targetAppBundle.dumpMachOInfo())
          self.debugLog("[FetchProvisioningProfiles] Fetching provisioning profile from Apple for App ID \(groupAppID.bundleIdentifier)...")
+-        let profile = try await DeveloperPortalProxy.shared.downloadProvisioningProfile(for: groupAppID, deviceType: DeveloperPortalProxy.currentDeviceType, team: team)
 +        // Same as GetMoreRam: enable Increased Memory Limit on the App ID so the
 +        // profile below already includes it. Never blocks the install on failure.
 +        do {
@@ -31,6 +32,26 @@ index e0e2399..5404d50 100644
 +        } catch {
 +            self.debugLog("[FetchProvisioningProfiles] Could not enable Increased Memory Limit for \(groupAppID.bundleIdentifier): \(error.localizedDescription)")
 +        }
-         let profile = try await DeveloperPortalProxy.shared.downloadProvisioningProfile(for: groupAppID, deviceType: DeveloperPortalProxy.currentDeviceType, team: team)
++        var profile = try await DeveloperPortalProxy.shared.downloadProvisioningProfile(for: groupAppID, deviceType: DeveloperPortalProxy.currentDeviceType, team: team)
++
++        // SideStoreRAM: Apple hands out the existing team profile of an App ID while it is valid.
++        // An App ID first used from another device (e.g. the same app on an iPhone) has a profile
++        // made before this device was registered, without it, and installing fails with
++        // 0xe8008015 ("A valid provisioning profile for this executable was not found"). Such a
++        // profile is deleted, and the new one Apple makes lists every registered device.
++        if let udid = try? await fetchUDID(), !udid.isEmpty, !profile.deviceIDs.isEmpty,
++           !profile.deviceIDs.contains(where: { $0.caseInsensitiveCompare(udid) == .orderedSame }),
++           let profileID = profile.identifier {
++            self.debugLog("[FetchProvisioningProfiles] Profile for \(groupAppID.bundleIdentifier) lists \(profile.deviceIDs.count) devices but not this one: making a new one")
++            do {
++                try await DeveloperPortalProxy.shared.deleteProvisioningProfile(profileID: profileID, team: team)
++                profile = try await DeveloperPortalProxy.shared.downloadProvisioningProfile(for: groupAppID, deviceType: DeveloperPortalProxy.currentDeviceType, team: team)
++                let covers = profile.deviceIDs.contains(where: { $0.caseInsensitiveCompare(udid) == .orderedSame })
++                self.debugLog("[FetchProvisioningProfiles] New profile lists \(profile.deviceIDs.count) devices, this one included: \(covers)")
++            } catch {
++                self.debugLog("[FetchProvisioningProfiles] Could not renew the profile: \(error.localizedDescription)")
++            }
++        }
          self.debugLog("[FetchProvisioningProfiles] Provisioning profile fetched for \(groupAppID.bundleIdentifier) (Name: \(profile.name), Expiration: \(String(describing: profile.expirationDate)))")
          return profile
+     }
