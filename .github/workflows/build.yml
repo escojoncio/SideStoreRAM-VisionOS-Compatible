@@ -1,5 +1,7 @@
 name: Build SideStore (RAM)
 
+# GitHub Actions minutes: this only runs when asked for - by hand (Actions > Run workflow) or
+# for a push whose commit message has [build] in it.
 on:
   push:
     branches: [main]
@@ -16,6 +18,7 @@ env:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build]')
     runs-on: macos-26
     steps:
       - name: Checkout patches

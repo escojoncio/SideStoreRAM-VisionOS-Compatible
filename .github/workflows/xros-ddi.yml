@@ -1,5 +1,7 @@
 name: Extract xrOS Developer Disk Image
 
+# GitHub Actions minutes: this only runs when asked for - by hand (Actions > Run workflow) or
+# for a push whose commit message has [build] in it.
 on:
   workflow_dispatch:
   push:
@@ -11,6 +13,7 @@ permissions:
 
 jobs:
   extract:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build]')
     runs-on: xcode-27
     steps:
       - name: Find xrOS DDI
