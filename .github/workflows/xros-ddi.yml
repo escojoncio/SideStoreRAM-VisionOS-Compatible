@@ -39,13 +39,30 @@ jobs:
           [ -n "$SRC" ] || { echo "::error::xrOS DDI not found on this runner"; exit 1; }
           echo "Source: $SRC"
           (cd "$SRC" && find . -maxdepth 5 -exec ls -ld {} \; | head -60) | while IFS= read -r l; do echo "::notice::$l"; done
-          IMG=$(find "$SRC" -name Image.dmg | head -1)
-          DIR=$(dirname "$IMG")
-          cp "$DIR/Image.dmg" "$DIR/Image.dmg.trustcache" out/DDI/
-          cp "$(find "$SRC" -name BuildManifest.plist | head -1)" out/DDI/
+          M="$SRC/Restore/BuildManifest.plist"
+          plutil -convert json -o manifest.json "$M"
+          python3 - "$SRC" <<'EOF' > picks.txt
+          import json,sys,os
+          src=sys.argv[1]; m=json.load(open('manifest.json'))
+          print("::notice::ProductVersion", m.get('ProductVersion'), "Build", m.get('ProductBuildVersion'))
+          for i,bi in enumerate(m['BuildIdentities']):
+              info=bi.get('Info',{})
+              print(f"::notice::identity {i} {info.get('DeviceClass')} {info.get('Variant')} keys={sorted(bi['Manifest'].keys())}")
+              for k,v in bi['Manifest'].items():
+                  print(f"::notice::  {k} -> {v.get('Info',{}).get('Path')}")
+          bi=m['BuildIdentities'][0]['Manifest']
+          dmg=bi.get('PersonalizedDMG',{}).get('Info',{}).get('Path')
+          tc=bi.get('LoadableTrustCache',{}).get('Info',{}).get('Path')
+          print(f"PICK {dmg}|{tc}")
+          EOF
+          cat picks.txt | grep "::notice::" || true
+          PICK=$(grep '^PICK ' picks.txt | cut -c6-)
+          DMG=${PICK%%|*}; TC=${PICK##*|}
+          echo "::notice::dmg=$DMG trustcache=$TC"
+          cp "$SRC/Restore/$DMG" out/DDI/Image.dmg
+          cp "$SRC/Restore/$TC" out/DDI/Image.dmg.trustcache
+          cp "$M" out/DDI/BuildManifest.plist
           ls -la out/DDI
-          /usr/libexec/PlistBuddy -c 'Print :ProductVersion' out/DDI/BuildManifest.plist || true
-          /usr/libexec/PlistBuddy -c 'Print :BuildIdentities:0:Info:Variant' out/DDI/BuildManifest.plist || true
           (cd out && zip -qry ../xrOS_DDI.zip DDI)
 
       - name: Publish
