@@ -3,6 +3,7 @@ name: Build SideStore (RAM)
 on:
   push:
     branches: [main]
+    paths-ignore: ['.github/workflows/xros-ddi.yml']
   workflow_dispatch:
 
 permissions:
