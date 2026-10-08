@@ -2,7 +2,7 @@
 
 SideStore independiente (sin LiveContainer) para Vision Pro (visionOS 27) con parches propios. Se instala con iLoader-VisionPro; se autorrenueva cada 7 días como SideStore normal.
 
-## Estado tras la última build (commit `62e5aba`, release `latest` → `SideStoreRAM.ipa`)
+## Estado tras la última build (commit `0a6c65b`, release `latest` → `SideStoreRAM.ipa`)
 Funciona en el dispositivo:
 - Sin extensiones (se elimina `PlugIns/`): consume una sola App ID.
 - Increased Memory Limit automático en cada instalación/renovación (misma capacidad que GetMoreRam); si Apple lo rechaza, instala igual.
