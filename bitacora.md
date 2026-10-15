@@ -24,3 +24,9 @@ Funciona en el dispositivo:
 
 ## Pendiente
 - Actualizar `SIDESTORE_COMMIT` cuando SideStore publique cambios necesarios para visionOS y recompilar con `[build]`.
+
+## 2026-10-16 — Login -80045 (Apple rechaza las identidades anisette Android/macOS desde 12-oct)
+- Causa: error del servidor GrandSlam; iloader funciona porque usa `ani.jkcoxson.com` (identidad Windows, `/v3/client_info`), estado ADI nuevo y cabeceras `X-Xcode-Version`/`X-Apple-App-Info`.
+- `patches/sidesign.patch`: `AnisetteDataManager.remoteClientInfo` pide `/v3/client_info` al servidor remoto y lo usa (salvo identidad personalizada no heredada); `sendAuthenticationRequest` usa UA de anisette, `Accept: text/x-xml-plist`, `X-Xcode-Version`, `X-Apple-App-Info`.
+- `patches/sidestore.patch`: `AnisetteProvider` pone `https://ani.jkcoxson.com` el primero y descarta el blob ADI si cambia de servidor (clave `VisionProAnisetteBlobServer`); migración única `VisionProAnisetteMigrated1` y valor por defecto `useOnDeviceAnisette=false`; URL por defecto en `AppConstants` e `Info.plist`.
+- Patches verificados con `git apply --check`. SIN compilar ni probar (sin compilador Swift aquí). Pendiente: build con el visto bueno del usuario y probar login.
