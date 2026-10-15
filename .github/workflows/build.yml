@@ -13,8 +13,8 @@ permissions:
 
 env:
   SIDESTORE_REPO: https://github.com/SideStore/SideStore
-  # develop @ 2026-09-20 (SideSign 6b68651, minimuxer 12be70d)
-  SIDESTORE_COMMIT: 0dd743f75afc358b0ba4a002feb5f19474492371
+  # develop @ 2026-10-13 (SideSign 752d1ef: 2FA 409 fix, minimuxer 12be70d)
+  SIDESTORE_COMMIT: 12ff39c6b6c0ccd8180f0834a893a4bbaf7bcd31
 
 jobs:
   build:

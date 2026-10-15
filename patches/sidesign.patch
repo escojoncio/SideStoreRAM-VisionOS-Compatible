@@ -15,10 +15,10 @@ index c43fd90..39d30e8 100644
                      filteredEntitlements.removeValue(forKey: key)
                  }
 diff --git a/Sources/DeveloperPortal/Authentication.swift b/Sources/DeveloperPortal/Authentication.swift
-index f60d4c6..7b4dd8b 100644
+index 0b8e0f2..48da744 100644
 --- a/Sources/DeveloperPortal/Authentication.swift
 +++ b/Sources/DeveloperPortal/Authentication.swift
-@@ -583,6 +583,10 @@ public extension DeveloperPortal {
+@@ -595,6 +595,10 @@ public extension DeveloperPortal {
          if phoneNumbers.isEmpty, let statusDictionary {
              phoneNumbers = parseTrustedPhoneNumbers(from: statusDictionary)
          }
@@ -29,7 +29,7 @@ index f60d4c6..7b4dd8b 100644
  
          let preferredMode: TwoFactorDeliveryMode = isTrustedDevice ? .trustedDevice : .sms
  
-@@ -676,113 +680,114 @@ public extension DeveloperPortal {
+@@ -687,113 +691,114 @@ public extension DeveloperPortal {
          }
      }
  
@@ -128,9 +128,9 @@ index f60d4c6..7b4dd8b 100644
 +        var request = makeJSONTwoFactorAuthRequest(url: URL(string: "https://gsa.apple.com/auth")!, context: context)
 +        request.httpMethod = "GET"
  
--        if errorCode == GrandSlamAuthErrorCodes.tooManyAttempts 
--            || errorCode == GrandSlamAuthErrorCodes.tooManyCodesRequested 
--            || errorCode == GrandSlamAuthErrorCodes.rateLimited 
+-        if errorCode == GrandSlamAuthErrorCodes.tooManyAttempts
+-            || errorCode == GrandSlamAuthErrorCodes.tooManyCodesRequested
+-            || errorCode == GrandSlamAuthErrorCodes.rateLimited
 -            || statusCode == HTTPStatusCodes.tooManyRequests
 -        {
 -            let msg = errorMsg ?? "Verification codes cannot be sent to this phone number at this time. Please try again later."
@@ -228,7 +228,7 @@ index f60d4c6..7b4dd8b 100644
      }
  
      private func validateTrustedDevice2FACode(code: String, context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult {
-@@ -806,23 +811,38 @@ public extension DeveloperPortal {
+@@ -817,23 +822,38 @@ public extension DeveloperPortal {
                                        mode: String,
                                        context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult
      {

@@ -18,5 +18,9 @@ Funciona en el dispositivo:
 ## Uso en el flujo de AstroVisionPro
 - Los IPA de prueba de AstroVisionPro se reempaquetan con el bundle ID de LiveContainer y se instalan con este SideStore para no gastar App IDs nuevas.
 
+## Actualización 2026-10-15 (pendiente de verificar en build)
+- `SIDESTORE_COMMIT` → `12ff39c6` (SideSign `752d1ef`: arreglo 2FA HSC 409 "pushedCode").
+- `patches/sidesign.patch` rebasado sobre `752d1ef`; el conflicto en `sendPhone2FACodeRequest` se resolvió con nuestra versión (412 = reto activo; -22979/-22981 continúan).
+
 ## Pendiente
 - Actualizar `SIDESTORE_COMMIT` cuando SideStore publique cambios necesarios para visionOS y recompilar con `[build]`.
