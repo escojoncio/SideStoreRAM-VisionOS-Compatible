@@ -1,3 +1,69 @@
+diff --git a/Sources/Anisette/AnisetteDataManager.swift b/Sources/Anisette/AnisetteDataManager.swift
+index 8c64485..940b128 100644
+--- a/Sources/Anisette/AnisetteDataManager.swift
++++ b/Sources/Anisette/AnisetteDataManager.swift
+@@ -411,6 +411,35 @@ public final class AnisetteDataManager: @unchecked Sendable {
+         AnisetteHeadersDTO.toDictionary(from: data.toRequestHeaders())
+     }
+ 
++    private static let clientInfoLock = NSLock()
++    private nonisolated(unsafe) static var clientInfoCache: [String: (clientInfo: String, userAgent: String)] = [:]
++
++    /// `GET <server>/v3/client_info`: the device identity the anisette server emulates.
++    static func remoteClientInfo(for serverURL: URL) async -> (clientInfo: String, userAgent: String)? {
++        let key = serverURL.absoluteString
++        clientInfoLock.lock()
++        let cached = clientInfoCache[key]
++        clientInfoLock.unlock()
++        if let cached { return cached }
++
++        var request = URLRequest(url: serverURL.appendingPathComponent("v3").appendingPathComponent("client_info"))
++        request.timeoutInterval = Constants.Anisette.serverValidationTimeout + 2
++        request.cachePolicy = .reloadIgnoringLocalCacheData
++        guard let (data, response) = try? await URLSession.shared.data(for: request),
++              let httpResp = response as? HTTPURLResponse, httpResp.isSuccess,
++              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
++              let clientInfo = json["client_info"] as? String, !clientInfo.isEmpty,
++              let userAgent = json["user_agent"] as? String, !userAgent.isEmpty else {
++            debugLog("[Anisette] \(key) has no usable /v3/client_info, keeping the default client identity")
++            return nil
++        }
++        debugLog("[Anisette] \(key) client_info: \(clientInfo)")
++        clientInfoLock.lock()
++        clientInfoCache[key] = (clientInfo, userAgent)
++        clientInfoLock.unlock()
++        return (clientInfo, userAgent)
++    }
++
+     public func fetchAnisetteData(
+         mode: AnisetteMode? = nil,
+         identifier: UUID,
+@@ -433,6 +462,25 @@ public final class AnisetteDataManager: @unchecked Sendable {
+             }
+         }
+ 
++        // Apple rejects (-80045) a client identity that does not match the anisette server's
++        // device. Ask the server which identity it emulates and use it, unless the user set
++        // a custom one.
++        var headers = headers
++        if case .remote(let serverURL) = resolvedMode,
++           let info = await Self.remoteClientInfo(for: serverURL) {
++            var merged = headers ?? AnisetteRequestHeaders()
++            let current = merged.clientInfo
++            let isLegacy = current == nil || current == Constants.Anisette.defaultClientInfo
++                || current!.contains("<MacBookPro") || current!.contains("Android") || current!.contains("<Pixel")
++            if isLegacy {
++                merged.clientInfo = info.clientInfo
++                if merged.userAgent == nil || merged.userAgent == Constants.Anisette.defaultUserAgent || merged.userAgent!.contains("Macintosh") {
++                    merged.userAgent = info.userAgent
++                }
++            }
++            headers = merged
++        }
++
+         let clientInfo = headers?.clientInfo ?? Constants.Anisette.defaultClientInfo
+         let client = try await getClient(for: resolvedMode, clientInfo: clientInfo)
+ 
 diff --git a/Sources/CodeSigning/CodeSignerAPI.swift b/Sources/CodeSigning/CodeSignerAPI.swift
 index c43fd90..39d30e8 100644
 --- a/Sources/CodeSigning/CodeSignerAPI.swift
@@ -15,10 +81,25 @@ index c43fd90..39d30e8 100644
                      filteredEntitlements.removeValue(forKey: key)
                  }
 diff --git a/Sources/DeveloperPortal/Authentication.swift b/Sources/DeveloperPortal/Authentication.swift
-index 0b8e0f2..48da744 100644
+index 0b8e0f2..8d1d02d 100644
 --- a/Sources/DeveloperPortal/Authentication.swift
 +++ b/Sources/DeveloperPortal/Authentication.swift
-@@ -595,6 +595,10 @@ public extension DeveloperPortal {
+@@ -320,8 +320,12 @@ public extension DeveloperPortal {
+         let headers: [String: String] = [
+             "Content-Type": "text/x-xml-plist",
+             "X-MMe-Client-Info": anisetteData.clientInfo,
+-            "Accept": "*/*",
+-            "User-Agent": h.grandSlam.userAgent,
++            "Accept": "text/x-xml-plist",
++            // Same identity as the anisette server's device (a Mac-like User-Agent with a
++            // Windows/Android client info is rejected with -80045); default UA only.
++            "User-Agent": h.grandSlam.userAgent == Constants.GrandSlam.userAgent ? anisetteData.userAgent : h.grandSlam.userAgent,
++            "X-Xcode-Version": "27.0 (27A5218g)",
++            "X-Apple-App-Info": h.grandSlam.authApp,
+             "Connection": "close"
+         ]
+         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+@@ -595,6 +599,10 @@ public extension DeveloperPortal {
          if phoneNumbers.isEmpty, let statusDictionary {
              phoneNumbers = parseTrustedPhoneNumbers(from: statusDictionary)
          }
@@ -29,7 +110,7 @@ index 0b8e0f2..48da744 100644
  
          let preferredMode: TwoFactorDeliveryMode = isTrustedDevice ? .trustedDevice : .sms
  
-@@ -687,113 +691,114 @@ public extension DeveloperPortal {
+@@ -687,113 +695,114 @@ public extension DeveloperPortal {
          }
      }
  
@@ -228,7 +309,7 @@ index 0b8e0f2..48da744 100644
      }
  
      private func validateTrustedDevice2FACode(code: String, context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult {
-@@ -817,23 +822,38 @@ public extension DeveloperPortal {
+@@ -817,23 +826,38 @@ public extension DeveloperPortal {
                                        mode: String,
                                        context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult
      {
