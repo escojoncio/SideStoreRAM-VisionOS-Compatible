@@ -1,8 +1,8 @@
 diff --git a/Sources/Anisette/AnisetteDataManager.swift b/Sources/Anisette/AnisetteDataManager.swift
-index 8c64485..940b128 100644
+index 8c64485..2dccb5f 100644
 --- a/Sources/Anisette/AnisetteDataManager.swift
 +++ b/Sources/Anisette/AnisetteDataManager.swift
-@@ -411,6 +411,35 @@ public final class AnisetteDataManager: @unchecked Sendable {
+@@ -411,6 +411,31 @@ public final class AnisetteDataManager: @unchecked Sendable {
          AnisetteHeadersDTO.toDictionary(from: data.toRequestHeaders())
      }
  
@@ -12,9 +12,7 @@ index 8c64485..940b128 100644
 +    /// `GET <server>/v3/client_info`: the device identity the anisette server emulates.
 +    static func remoteClientInfo(for serverURL: URL) async -> (clientInfo: String, userAgent: String)? {
 +        let key = serverURL.absoluteString
-+        clientInfoLock.lock()
-+        let cached = clientInfoCache[key]
-+        clientInfoLock.unlock()
++        let cached = clientInfoLock.withLock { clientInfoCache[key] }
 +        if let cached { return cached }
 +
 +        var request = URLRequest(url: serverURL.appendingPathComponent("v3").appendingPathComponent("client_info"))
@@ -29,16 +27,14 @@ index 8c64485..940b128 100644
 +            return nil
 +        }
 +        debugLog("[Anisette] \(key) client_info: \(clientInfo)")
-+        clientInfoLock.lock()
-+        clientInfoCache[key] = (clientInfo, userAgent)
-+        clientInfoLock.unlock()
++        clientInfoLock.withLock { clientInfoCache[key] = (clientInfo, userAgent) }
 +        return (clientInfo, userAgent)
 +    }
 +
      public func fetchAnisetteData(
          mode: AnisetteMode? = nil,
          identifier: UUID,
-@@ -433,6 +462,25 @@ public final class AnisetteDataManager: @unchecked Sendable {
+@@ -433,6 +458,25 @@ public final class AnisetteDataManager: @unchecked Sendable {
              }
          }
  
