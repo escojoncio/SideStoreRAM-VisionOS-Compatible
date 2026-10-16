@@ -77,10 +77,43 @@ index c43fd90..39d30e8 100644
                      filteredEntitlements.removeValue(forKey: key)
                  }
 diff --git a/Sources/DeveloperPortal/Authentication.swift b/Sources/DeveloperPortal/Authentication.swift
-index 0b8e0f2..8d1d02d 100644
+index 0b8e0f2..4c478f3 100644
 --- a/Sources/DeveloperPortal/Authentication.swift
 +++ b/Sources/DeveloperPortal/Authentication.swift
-@@ -320,8 +320,12 @@ public extension DeveloperPortal {
+@@ -27,22 +27,19 @@ public extension DeveloperPortal {
+         debugLog("[SideSign] Starting authenticate...")
+         verboseLog("[SideSign] Authenticating Apple ID: \(sanitizedAppleID)")
+ 
++        // Same minimal client-provided data iloader/isideload sends (which Apple still accepts):
++        // string flags and only the three anisette fields. The extra fake fields (serial "0",
++        // local user id, routing info, client time, timezone) are no longer sent.
+         let clientDictionary: [String: any Sendable] = [
+-            "bootstrap": true,
+-            "icscrec": true,
+-            "pbe": false,
+-            "prkgen": true,
++            "bootstrap": "true",
++            "icscrec": "true",
++            "pbe": "false",
++            "prkgen": "true",
+             "svct": customHeaders.grandSlam.service,
+-            "loc": anisetteData.locale,
+-            "X-Apple-Locale": anisetteData.locale,
+-            "X-Apple-I-MD": anisetteData.oneTimePassword,
+-            "X-Apple-I-MD-M": anisetteData.machineID,
++            "loc": "en_US",
+             "X-Mme-Device-Id": anisetteData.deviceID,
+-            "X-Apple-I-MD-LU": anisetteData.localUserID,
+-            "X-Apple-I-MD-RINFO": anisetteData.routingInfo,
+-            "X-Apple-I-SRL-NO": anisetteData.serialNumber,
+-            "X-Apple-I-Client-Time": anisetteData.clientTime,
+-            "X-Apple-I-TimeZone": anisetteData.timeZone
++            "X-Apple-I-MD": anisetteData.oneTimePassword,
++            "X-Apple-I-MD-M": anisetteData.machineID
+         ]
+ 
+         guard let srpClient = SRPClient(),
+@@ -320,8 +317,12 @@ public extension DeveloperPortal {
          let headers: [String: String] = [
              "Content-Type": "text/x-xml-plist",
              "X-MMe-Client-Info": anisetteData.clientInfo,
@@ -95,7 +128,7 @@ index 0b8e0f2..8d1d02d 100644
              "Connection": "close"
          ]
          headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
-@@ -595,6 +599,10 @@ public extension DeveloperPortal {
+@@ -595,6 +596,10 @@ public extension DeveloperPortal {
          if phoneNumbers.isEmpty, let statusDictionary {
              phoneNumbers = parseTrustedPhoneNumbers(from: statusDictionary)
          }
@@ -106,7 +139,7 @@ index 0b8e0f2..8d1d02d 100644
  
          let preferredMode: TwoFactorDeliveryMode = isTrustedDevice ? .trustedDevice : .sms
  
-@@ -687,113 +695,114 @@ public extension DeveloperPortal {
+@@ -687,113 +692,114 @@ public extension DeveloperPortal {
          }
      }
  
@@ -305,7 +338,7 @@ index 0b8e0f2..8d1d02d 100644
      }
  
      private func validateTrustedDevice2FACode(code: String, context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult {
-@@ -817,23 +826,38 @@ public extension DeveloperPortal {
+@@ -817,23 +823,38 @@ public extension DeveloperPortal {
                                        mode: String,
                                        context: TwoFactorAuthContext) async throws -> TwoFactorAuthValidationResult
      {
