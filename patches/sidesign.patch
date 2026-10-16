@@ -1,5 +1,5 @@
 diff --git a/Sources/Anisette/AnisetteDataManager.swift b/Sources/Anisette/AnisetteDataManager.swift
-index 8c64485..2dccb5f 100644
+index 8c64485..996baf9 100644
 --- a/Sources/Anisette/AnisetteDataManager.swift
 +++ b/Sources/Anisette/AnisetteDataManager.swift
 @@ -411,6 +411,31 @@ public final class AnisetteDataManager: @unchecked Sendable {
@@ -34,7 +34,7 @@ index 8c64485..2dccb5f 100644
      public func fetchAnisetteData(
          mode: AnisetteMode? = nil,
          identifier: UUID,
-@@ -433,6 +458,25 @@ public final class AnisetteDataManager: @unchecked Sendable {
+@@ -433,15 +458,53 @@ public final class AnisetteDataManager: @unchecked Sendable {
              }
          }
  
@@ -42,17 +42,25 @@ index 8c64485..2dccb5f 100644
 +        // device. Ask the server which identity it emulates and use it, unless the user set
 +        // a custom one.
 +        var headers = headers
-+        if case .remote(let serverURL) = resolvedMode,
-+           let info = await Self.remoteClientInfo(for: serverURL) {
++        if case .remote(let serverURL) = resolvedMode {
 +            var merged = headers ?? AnisetteRequestHeaders()
-+            let current = merged.clientInfo
-+            let isLegacy = current == nil || current == Constants.Anisette.defaultClientInfo
-+                || current!.contains("<MacBookPro") || current!.contains("Android") || current!.contains("<Pixel")
-+            if isLegacy {
-+                merged.clientInfo = info.clientInfo
-+                if merged.userAgent == nil || merged.userAgent == Constants.Anisette.defaultUserAgent || merged.userAgent!.contains("Macintosh") {
-+                    merged.userAgent = info.userAgent
++            if let info = await Self.remoteClientInfo(for: serverURL) {
++                let current = merged.clientInfo
++                let isLegacy = current == nil || current == Constants.Anisette.defaultClientInfo
++                    || current!.contains("<MacBookPro") || current!.contains("Android") || current!.contains("<Pixel")
++                if isLegacy {
++                    merged.clientInfo = info.clientInfo
++                    if merged.userAgent == nil || merged.userAgent == Constants.Anisette.defaultUserAgent || merged.userAgent!.contains("Macintosh") {
++                        merged.userAgent = info.userAgent
++                    }
 +                }
++            }
++            // Same derivation as iloader: device id = identifier UUID (lowercase), MD-LU = SHA-256 of
++            // the identifier bytes. Only fill what the user did not set.
++            if merged.deviceID == nil { merged.deviceID = identifier.uuidString.lowercased() }
++            if merged.localUserID == nil || merged.localUserID == AnisetteConstants.defaultLocalUserID {
++                let bytes = withUnsafeBytes(of: identifier.uuid) { Array($0) }
++                merged.localUserID = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
 +            }
 +            headers = merged
 +        }
@@ -60,6 +68,74 @@ index 8c64485..2dccb5f 100644
          let clientInfo = headers?.clientInfo ?? Constants.Anisette.defaultClientInfo
          let client = try await getClient(for: resolvedMode, clientInfo: clientInfo)
  
+         do {
+-            let (rawHeaders, newBlob) = try await client.getAnisetteData(
+-                identifier: identifier,
+-                storage: .memory(existingBlob: existingAdiBlob),
+-                headers: headers
+-            )
++            let rawHeaders: [String: String]
++            let newBlob: Data?
++            do {
++                (rawHeaders, newBlob) = try await client.getAnisetteData(
++                    identifier: identifier,
++                    storage: .memory(existingBlob: existingAdiBlob),
++                    headers: headers
++                )
++            } catch where existingAdiBlob != nil && "\(error)".contains("-45061") {
++                debugLog("[Anisette] server says the ADI blob is not provisioned (-45061): provisioning again")
++                (rawHeaders, newBlob) = try await client.getAnisetteData(
++                    identifier: identifier,
++                    storage: .memory(existingBlob: nil),
++                    headers: headers
++                )
++            }
+ 
+             let anisetteData = try Self.validateAndCreateAnisetteData(from: rawHeaders)
+ 
+diff --git a/Sources/Anisette/RemoteAnisetteDataProvider.swift b/Sources/Anisette/RemoteAnisetteDataProvider.swift
+index 26c596a..e5ab86f 100644
+--- a/Sources/Anisette/RemoteAnisetteDataProvider.swift
++++ b/Sources/Anisette/RemoteAnisetteDataProvider.swift
+@@ -56,7 +56,9 @@ public struct RemoteAnisetteDataProvider: AnisetteDataProvider, Sendable {
+         identifier: [UInt8],
+         adiPb: [UInt8]
+     ) async throws -> AnisetteDataResponse {
+-        let cleanIdentifier = identifier.map { String(format: "%02x", $0) }.joined()
++        // anisette-v3 servers expect the 16 raw identifier bytes as base64 (as iloader sends them), so the
++        // ADI identifier is the same value as the X-Mme-Device-Id UUID.
++        let cleanIdentifier = Data(identifier).base64EncodedString()
+         let baseURL = serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+ 
+         // 1. If adiPb is present, attempt v3 /v3/get_headers
+@@ -74,7 +76,15 @@ public struct RemoteAnisetteDataProvider: AnisetteDataProvider, Sendable {
+                 ]
+                 postReq.httpBody = try JSONSerialization.data(withJSONObject: payload)
+ 
+-                if let (data, response) = try? await URLSession.shared.data(for: postReq),
++                let fetched = try? await URLSession.shared.data(for: postReq)
++                if let (data, response) = fetched,
++                   !((response as? HTTPURLResponse)?.isSuccess ?? false),
++                   let body = String(data: data, encoding: .utf8), body.contains("-45061") {
++                    // Not provisioned for this identifier: report it instead of silently falling back to
++                    // the legacy endpoint (whose data would not match this device identity).
++                    throw AnisetteError.badServerResponse(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1, payload: body)
++                }
++                if let (data, response) = fetched,
+                    let httpResp = response as? HTTPURLResponse, httpResp.isSuccess,
+                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                     if let result = json["result"], result == "GetHeadersError" {
+@@ -124,7 +134,9 @@ public struct RemoteAnisetteDataProvider: AnisetteDataProvider, Sendable {
+         let webSocketTask = URLSession.shared.webSocketTask(with: webSocketURL)
+         webSocketTask.resume()
+ 
+-        let cleanIdentifier = identifier.map { String(format: "%02x", $0) }.joined()
++        // anisette-v3 servers expect the 16 raw identifier bytes as base64 (as iloader sends them), so the
++        // ADI identifier is the same value as the X-Mme-Device-Id UUID.
++        let cleanIdentifier = Data(identifier).base64EncodedString()
+ 
+         do {
+             while true {
 diff --git a/Sources/CodeSigning/CodeSignerAPI.swift b/Sources/CodeSigning/CodeSignerAPI.swift
 index c43fd90..39d30e8 100644
 --- a/Sources/CodeSigning/CodeSignerAPI.swift
