@@ -24,6 +24,7 @@ Funciona en el dispositivo:
 
 ## 2026-10-25
 - 2026-10-25: `.claude/agents/coder.md`: maxTurns → 70
+- 2026-10-25: `CLAUDE.md` línea 1: regla de cumplir siempre el rol asignado.
 
 ## Pendiente
 - Actualizar `SIDESTORE_COMMIT` cuando SideStore publique cambios necesarios para visionOS y recompilar con `[build]`.
