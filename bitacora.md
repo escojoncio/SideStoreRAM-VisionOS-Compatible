@@ -22,6 +22,9 @@ Funciona en el dispositivo:
 - `SIDESTORE_COMMIT` → `12ff39c6` (relanzado tras resolver la facturación de Actions) (SideSign `752d1ef`: arreglo 2FA HSC 409 "pushedCode").
 - `patches/sidesign.patch` rebasado sobre `752d1ef`; el conflicto en `sendPhone2FACodeRequest` se resolvió con nuestra versión (412 = reto activo; -22979/-22981 continúan).
 
+## 2026-10-25
+- 2026-10-25: `.claude/agents/coder.md`: maxTurns → 70
+
 ## Pendiente
 - Actualizar `SIDESTORE_COMMIT` cuando SideStore publique cambios necesarios para visionOS y recompilar con `[build]`.
 
