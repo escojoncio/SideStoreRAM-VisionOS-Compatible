@@ -13,8 +13,8 @@ permissions:
 
 env:
   SIDESTORE_REPO: https://github.com/SideStore/SideStore
-  # develop (nightly) @ 2026-10-16 01:07 -0400 (SideSign 752d1ef, minimuxer 12be70d)
-  SIDESTORE_COMMIT: d97ec133719d79916675bdaf722b82a8d091d545
+  # develop (nightly) @ 2026-11-06 (SideSign 752d1ef, minimuxer 12be70d)
+  SIDESTORE_COMMIT: 4f3d18d98c5fbee72c80f787ceb2e8e09ded60a6
 
 jobs:
   build:
@@ -65,6 +65,7 @@ jobs:
           BIN=Payload/SideStore.app/SideStore
           grep -q INCREASED_MEMORY_LIMIT "$BIN" || { echo "::error::RAM patch missing from binary"; exit 1; }
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/SideStore.app/Info.plist
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/SideStore.app/Info.plist)" = "com.SideStore.SideStore" ] || { echo "::error::CFBundleIdentifier is not com.SideStore.SideStore"; exit 1; }
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Payload/SideStore.app/Info.plist
           zip -qry -X ../SideStoreRAM.ipa Payload
           cd .. && ls -la SideStoreRAM.ipa

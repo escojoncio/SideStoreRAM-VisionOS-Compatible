@@ -28,7 +28,7 @@ Funciona en el dispositivo:
 - 2026-10-25: `CLAUDE.md` (Sub-agent setup): coder maxTurns 40 → 70.
 
 ## Pendiente
-- Actualizar `SIDESTORE_COMMIT` cuando SideStore publique cambios necesarios para visionOS y recompilar con `[build]`.
+- Probar el IPA nuevo (login, SMS, RAM extra, renovación) y confirmar que el bundle ID coincide con el instalado.
 
 ## 2026-10-16 — Login -80045 (Apple rechaza las identidades anisette Android/macOS desde 12-oct)
 - Causa: error del servidor GrandSlam; iloader funciona porque usa `ani.jkcoxson.com` (identidad Windows, `/v3/client_info`), estado ADI nuevo y cabeceras `X-Xcode-Version`/`X-Apple-App-Info`.
@@ -39,3 +39,9 @@ Funciona en el dispositivo:
 - 2026-10-16 (3): tras la build con cpd mínimo el login daba -22421 (sin llegar al 2FA; significado desconocido). `sidesign.patch`: `RemoteAnisetteDataProvider` manda el identificador ADI como base64 de los 16 bytes (antes hex; iloader/isideload usa base64 y device id = mismo UUID); `AnisetteDataManager.fetchAnisetteData` (modo remoto) rellena `deviceID` = UUID en minúsculas y `localUserID` = SHA-256(identificador) como iloader, y reintenta sin blob si el servidor responde -45061 (get_headers no-200 con -45061 ya no cae al endpoint v1). NO compilado aún (pendiente visto bueno del usuario); revisado por subagente. Si sigue fallando: añadir diagnóstico en pantalla/log con la respuesta de Apple.
 - 2026-10-16 (4): REVERTIDOS los cambios de anisette/identidad (cpd mínimo, base64, jkcoxson forzado, ODA off): la nightly oficial funciona para otros usuarios y nuestros cambios provocaban -22421. Los parches quedan solo con la RAM extra (CodeSignerAPI/MemoryCapability en sidesign.patch; DeveloperPortalProxy y FetchProvisioningProfilesOperation en sidestore.patch). Base: SideStore develop `d97ec133` (nightly). Pendiente: probar login con la build.
 - 2026-10-16 (5): corrección: el revert anterior borró por error el fix de SMS y el hook de CodeSignerAPI. Parches restaurados desde 2f716a2 (SMS 2FA + RAM extra, sin cambios de anisette). Base nightly `d97ec133`.
+
+## 2026-11-22 — SideStore → nightly develop `4f3d18d` (sin compilar ni probar)
+- `.github/workflows/build.yml`: `SIDESTORE_COMMIT` → `4f3d18d98c5fbee72c80f787ceb2e8e09ded60a6` (develop 2026-11-06; SideSign `752d1ef` y minimuxer `12be70d` sin cambios). Ambos parches aplican limpios (`git apply --check`; sidesign.patch comprobado por el subagente de código, el revisor solo comprobó sidestore.patch).
+- Nueva comprobación tras el `PlistBuddy Print :CFBundleIdentifier`: el build falla si el bundle ID no es exactamente `com.SideStore.SideStore` (valor de `Build.xcconfig` Release; nuestro workflow no lo modifica).
+- Upstream pasó sus workflows a runner `xcode-27`/SDK 27.2; nuestro build sigue en `macos-26`/Xcode 26 (el código nuevo solo cambia `.foregroundColor(.white)`→`.primary`). Si el build falla por SDK, probar Xcode 27.
+- Unverified: que el bundle ID del IPA publicado anteriormente fuese `com.SideStore.SideStore` (no se descargó el IPA); URL de la última nightly de Actions no obtenible (la API de Actions no es accesible desde aquí).
